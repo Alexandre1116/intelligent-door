@@ -1,2 +1,2 @@
 # intelligent-door
-Este é um projeto de porta inteligente com três tecnologias de acesso: impressão digital, RFID/NFC e código de 6 dígitos. O objetivo é criar um sistema de controle de acessos simples e intuitivo. A interface tem um LCD e botões.
+his is a smart door project with three access technologies: fingerprint, RFID/NFC, and 6-digit code. The goal is to create a simple and intuitive access control system. The interface has an LCD and buttons.
