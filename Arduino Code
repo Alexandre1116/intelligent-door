@@ -1,0 +1,221 @@
+#include <SPI.h>
+#include <MFRC522.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_PCD8544.h>
+#include <Adafruit_Fingerprint.h>
+#include <Keypad.h>
+
+// Definindo pinos para o RFID
+#define RST_PIN         5          
+#define SS_PIN          53         
+
+MFRC522 mfrc522(SS_PIN, RST_PIN);  // Inicializa o objeto MFRC522
+String read_rfid;  // String para armazenar dados do RFID
+String ok_rfid_1 = "2e7f2a3e";  // RFID autorizado 1
+String ok_rfid_2 = "31d22e0";   // RFID autorizado 2
+
+// Definindo pinos para o display Nokia 5110
+#define PCD8544_SCLK 13
+#define PCD8544_DIN  11
+#define PCD8544_DC   9
+#define PCD8544_CS   10
+#define PCD8544_RST  8
+
+Adafruit_PCD8544 display = Adafruit_PCD8544(PCD8544_SCLK, PCD8544_DIN, PCD8544_DC, PCD8544_CS, PCD8544_RST);  // Inicializa o display
+
+// Inicializa a comunicação serial com o sensor de impressões digitais
+#if (defined(__AVR__) || defined(ESP8266)) && !defined(__AVR_ATmega2560__)
+SoftwareSerial mySerial(18, 19);
+#else
+#define mySerial Serial1
+#endif
+
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);  // Inicializa o objeto de impressão digital
+
+// Definindo pinos e configuração do teclado matricial
+const byte LINHAS = 4; 
+const byte COLUNAS = 3; 
+const char TECLAS_MATRIZ[LINHAS][COLUNAS] = { 
+  {'1', '2', '3'},
+  {'4', '5', '6'},
+  {'7', '8', '9'},
+  {'*', '0', '#'}
+};
+const byte PINOS_LINHAS[LINHAS] = {24, 34, 32, 28}; 
+const byte PINOS_COLUNAS[COLUNAS] = {26, 22, 30}; 
+
+Keypad teclado_personalizado = Keypad(makeKeymap(TECLAS_MATRIZ), PINOS_LINHAS, PINOS_COLUNAS, LINHAS, COLUNAS);  // Inicializa o teclado
+
+uint8_t authorized_fingerprints[] = {1, 2}; // IDs de impressões digitais autorizadas
+String input_code = "";  // Para armazenar o código digitado
+
+void setup() {
+    Serial.begin(9600);  // Inicializa a comunicação serial
+    SPI.begin();  // Inicializa o barramento SPI
+    mfrc522.PCD_Init();  // Inicializa o módulo RFID
+    display.begin(); 
+    display.setContrast(50); 
+    display.clearDisplay(); 
+    display.display(); 
+
+    pinMode(7, OUTPUT);  // Configura o pino do buzzer como saída
+    pinMode(48, OUTPUT); // Configura pino como saída
+    pinMode(49, INPUT);  // Configura pino como entrada
+    pinMode(42, OUTPUT); // Configura pino como saída
+    pinMode(44, OUTPUT); // Configura pino como saída
+    pinMode(46, OUTPUT); // Configura pino como saída
+
+    digitalWrite(42, HIGH); // Inicializa pino em estado HIGH
+    digitalWrite(46, LOW);  // Inicializa pino em estado LOW
+
+    finger.begin(57600);  // Inicializa o sensor de impressões digitais
+    if (finger.verifyPassword()) {
+        Serial.println("Found fingerprint sensor!");  // Sensor de impressões digitais encontrado
+    } else {
+        Serial.println("Did not find fingerprint sensor :(");  // Sensor de impressões digitais não encontrado
+        while (1) { delay(1); }
+    }
+}
+
+void dump_byte_array(byte *buffer, byte bufferSize) {
+    read_rfid = "";  // Limpa a string read_rfid
+    for (byte i = 0; i < bufferSize; i++) {
+        read_rfid += String(buffer[i], HEX);  // Converte bytes para string hexadecimal
+    }
+}
+
+void abrirPorta() {
+    display.setTextSize(1);
+    display.setTextColor(BLACK);
+    display.setCursor(0, 0);
+    display.println("Bem Vindo");
+    display.display(); 
+    delay(2000); 
+    display.clearDisplay(); 
+    display.display();
+
+    digitalWrite(48, HIGH);  // Abre a porta
+    tone(7, 3000);  // Ativa o buzzer
+    digitalWrite(46, HIGH);
+    digitalWrite(42, LOW);
+    delay(3000); 
+    digitalWrite(48, LOW);  // Fecha a porta
+    digitalWrite(42, HIGH);
+    digitalWrite(46, LOW);
+    noTone(7);  // Desativa o buzzer
+}
+
+void negarAcesso() {
+    tone(7, 5000);  // Ativa o buzzer
+    digitalWrite(42, HIGH);
+    display.setTextSize(1); 
+    display.setTextColor(BLACK);
+    display.setCursor(0, 0); 
+    display.println("Não Autorizado"); 
+    display.display(); 
+    delay(500);
+    noTone(7);  // Desativa o buzzer
+    digitalWrite(42, LOW);
+    delay(500);
+    tone(7, 5000);  // Ativa o buzzer
+    digitalWrite(42, HIGH);
+    delay(500);
+    noTone(7);  // Desativa o buzzer
+    digitalWrite(42, LOW);
+    delay(500);
+    tone(7, 5000);  // Ativa o buzzer
+    digitalWrite(42, HIGH);
+    delay(500);
+    noTone(7);  // Desativa o buzzer
+    digitalWrite(42, LOW);
+    display.clearDisplay(); 
+    display.display();
+    digitalWrite(42, HIGH);
+}
+
+int getFingerprintID() {
+    uint8_t p = finger.getImage();
+    if (p != FINGERPRINT_OK) return -1;
+
+    p = finger.image2Tz();
+    if (p != FINGERPRINT_OK) return -1;
+
+    p = finger.fingerSearch();
+    if (p != FINGERPRINT_OK) return -1;
+
+    return finger.fingerID;  // Retorna o ID da impressão digital
+}
+
+bool isAuthorizedFingerprint(uint8_t id) {
+    for (uint8_t i = 0; i < sizeof(authorized_fingerprints); i++) {
+        if (authorized_fingerprints[i] == id) {
+            return true;  // Impressão digital autorizada
+        }
+    }
+    return false;  // Impressão digital não autorizada
+}
+
+bool isAuthorizedCode() {
+    if (input_code == "123456") {
+        input_code = "";  // Limpa o código após verificação
+        return true;  // Código autorizado
+    }
+    return false;  // Código não autorizado
+}
+
+void updateDisplayWithCode() {
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(BLACK);
+    display.setCursor(0, 0);
+    display.print("Code: ");
+    display.print(input_code);  // Atualiza o display com o código digitado
+    display.display();
+}
+
+void loop() {
+    // Autenticação RFID
+    if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
+        dump_byte_array(mfrc522.uid.uidByte, mfrc522.uid.size); 
+        Serial.println(read_rfid); 
+        
+        if (read_rfid == ok_rfid_1 || read_rfid == ok_rfid_2) {
+            Serial.println("RFID Authorized");
+            abrirPorta();
+        } else {
+            negarAcesso();
+        }
+        mfrc522.PICC_HaltA(); // Para desativar a leitura de cartões até que um novo cartão seja apresentado
+        mfrc522.PCD_StopCrypto1(); // Para desativar a comunicação criptografada com o cartão
+    }
+
+    // Autenticação via Teclado
+    char key = teclado_personalizado.getKey();
+    if (key) {
+        input_code += key;
+        Serial.println(input_code);  // Para depuração
+        updateDisplayWithCode();  // Atualiza o display com o código digitado
+        if (input_code.length() >= 6) {
+            if (isAuthorizedCode()) {
+                display.clearDisplay(); //LIMPA AS INFORMAÇÕES DO DISPLAY
+                display.display();
+                abrirPorta();
+            } else {
+                negarAcesso();
+                input_code = "";  // Limpa o código se estiver incorreto
+            }
+        }
+    }
+
+    // Autenticação via Impressão Digital
+    int fingerprintID = getFingerprintID();
+    if (fingerprintID >= 0) {
+        if (isAuthorizedFingerprint(fingerprintID)) {
+            Serial.println("Fingerprint Authorized");
+            abrirPorta();
+        } else {
+            Serial.println("Fingerprint not authorized");
+            negarAcesso();
+        }
+    }
+}
